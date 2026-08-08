@@ -1,0 +1,77 @@
+import requests
+import time
+from datetime import datetime
+
+# === اعداداتك ===
+NTFY_TOPIC = "ali-sniper-alam-77x9k2"
+MIN_LIQUIDITY = 5000  # اقل سيولة مقبولة بالدولار
+CHECK_INTERVAL = 15  # كل 15 ثانية يفحص
+
+seen_tokens = set()
+
+def send_ntfy(title, message):
+    try:
+        requests.post(
+            f"https://ntfy.sh/{NTFY_TOPIC}",
+            data=message.encode('utf-8'),
+            headers={
+                "Title": title,
+                "Priority": "high",
+                "Tags": "rocket,moneybag"
+            },
+            timeout=10
+        )
+        print(f"[{datetime.now()}] تم ارسال: {title}")
+    except Exception as e:
+        print(f"خطأ بالارسال: {e}")
+
+def check_new_pairs():
+    try:
+        # سحب احدث الازواج من سولانا - اكثر شبكة بيها عملات جديدة
+        url = "https://api.dexscreener.com/token-boosts/latest/v1"
+        r = requests.get(url, timeout=15)
+        data = r.json()
+        
+        for item in data[:20]:  # نفحص احدث 20 عملة
+            token_addr = item.get('tokenAddress', '')
+            if token_addr in seen_tokens:
+                continue
+            
+            # تفاصيل العملة
+            chain = item.get('chainId', 'solana')
+            # نحاول نجيب معلومات اكثر
+            try:
+                info_url = f"https://api.dexscreener.com/latest/dex/tokens/{token_addr}"
+                info_r = requests.get(info_url, timeout=10)
+                info_data = info_r.json()
+                pairs = info_data.get('pairs', [])
+                if not pairs:
+                    continue
+                pair = pairs[0]
+                liquidity = pair.get('liquidity', {}).get('usd', 0)
+                price_usd = pair.get('priceUsd', '0')
+                symbol = pair.get('baseToken', {}).get('symbol', 'UNKNOWN')
+                name = pair.get('baseToken', {}).get('name', '')
+                url_chart = pair.get('url', '')
+                
+                if liquidity < MIN_LIQUIDITY:
+                    continue
+                
+                seen_tokens.add(token_addr)
+                
+                msg = f"💰 {symbol} ({name})\n💧 سيولة: ${liquidity:,.0f}\n💵 سعر: ${price_usd}\n🔗 {url_chart}\n⛓️ {chain}"
+                send_ntfy(f"🎯 لزم عملة جديدة: {symbol}", msg)
+                
+            except:
+                continue
+                
+    except Exception as e:
+        print(f"خطأ بالفحص: {e}")
+
+if __name__ == "__main__":
+    print(f"🚀 الصياد الحقيقي 24/7 اشتغل - الموضوع: {NTFY_TOPIC}")
+    send_ntfy("الصياد اشتغل ✅", f"تم تشغيل الصياد الحقيقي بنجاح!\nسأفحص كل {CHECK_INTERVAL} ثانية\nسيولة دنيا: ${MIN_LIQUIDITY}")
+    
+    while True:
+        check_new_pairs()
+        time.sleep(CHECK_INTERVAL)
